@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
 
-# Precise control over undersampling using Gaussian masks in Fourier space
 def gaussian_undersample_qspace(qspace, delta):
     rows, cols, slices, _ = qspace.shape  # Extract the shape considering the real and imaginary parts
     undersampled_qspace = np.zeros_like(qspace)
@@ -48,7 +47,6 @@ def vardens_gaussian_sampling(shape, delta, visualize_mask=False):
         plt.show()
     
     return omega
-
 
 # Define weights initialization function
 def weights_init_normal(m):
@@ -92,12 +90,30 @@ class QRDataset(Dataset):
 
         qspace = voxel_data['qspace'][()]
         qspace_combined = np.stack((qspace['real'], qspace['imag']), axis=-1)
+        qspace_combined = self.normalize_qspace(qspace_combined)
         qspace_truth = torch.tensor(qspace_combined, dtype=torch.float32)
 
-        # undersampled_image = self.gaussian_undersampling(qspace_combined)
         undersampled_image = self.gaussian_undersample_qspace(qspace_combined)
 
         return {"Undersampled_qspace": undersampled_image, "R_space": rspace_truth, "Q_space": qspace_truth}
+    
+    
+    def normalize_qspace(self, qspace):
+        real_part = qspace[..., 0]
+        imag_part = qspace[..., 1]
+
+        real_min = -5.531678316297741e+16
+        real_max = 2.0534980643361487e+18
+        imag_min = -96.00394615184113
+        imag_max = 96.00394615184113
+
+        norm_real = 2 * (real_part - real_min) / (real_max - real_min) - 1
+        norm_imag = 2 * (imag_part - imag_min) / (imag_max - imag_min) - 1
+
+        normalized_qspace = np.stack((norm_real, norm_imag), axis=-1)
+        return normalized_qspace
+
+
     
     def gaussian_undersampling(self, qspace, sigma=5): #straightforward undersampling
         noise = np.random.randn(*qspace.shape) * sigma
@@ -107,11 +123,9 @@ class QRDataset(Dataset):
     def gaussian_undersample_qspace(self, qspace, delta=5): #more precise
         return torch.tensor(gaussian_undersample_qspace(qspace, delta), dtype=torch.float32)
 
-
     def close(self):
         for voxel_data in self.voxel_data:
             voxel_data.file.close()
-
 
 def get_train_val_datasets(file_paths, test_size=0.2):
     full_dataset = QRDataset(file_paths)
@@ -123,7 +137,6 @@ def get_train_val_datasets(file_paths, test_size=0.2):
 
     return train_dataset, val_dataset
 
-
 if __name__ == "__main__":
     file_paths = [f'Data/simulation_results_{i:02d}.mat' for i in range(1, 21)]
     train_dataset, val_dataset = get_train_val_datasets(file_paths)
@@ -133,6 +146,12 @@ if __name__ == "__main__":
 
     print(f"Train dataset length: {len(train_dataset)}")
     print(f"Validation dataset length: {len(val_dataset)}")
+
+    # Example of loading a batch
+    for batch in train_loader:
+        print(batch['Undersampled_qspace'].shape, batch['R_space'].shape, batch['Q_space'].shape)
+        break
+
 
     # Example of loading a batch
     for batch in train_loader:
